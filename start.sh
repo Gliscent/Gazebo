@@ -13,7 +13,7 @@ killall -9 ruby gz-sim-server px4 MicroXRCEAgent 2>/dev/null
 
 # 3. Gazebo 실행
 echo "Starting Gazebo World..."
-gz sim test_world.sdf &
+gz sim test_sekai.sdf &
 sleep 10
 
 # 4. MicroXRCE DDS 실행
