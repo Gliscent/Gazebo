@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 1. 환경 설정 및 경로 변수
-source /opt/ros/jazzy/setup.bash
+source ~/opt/ros/jazzy/setup.bash
 source ~/ros2_ws/install/setup.bash
 
 export GZ_MODEL_PATH=$GZ_MODEL_PATH:$HOME/PX4-Autopilot/Tools/simulation/gz/models
