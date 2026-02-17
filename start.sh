@@ -4,8 +4,7 @@
 source /opt/ros/jazzy/setup.bash
 source ~/ros2_ws/install/setup.bash
 
-export GZ_MODEL_PATH=$GZ_MODEL_PATH:$HOME/PX4-Autopilot/Tools/simulation/gz/models
-export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:$HOME/PX4-Autopilot/Tools/simulation/gz/models:$HOME/PX4-Autopilot/Tools/simulation/gz/worlds
+export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:~/PX4-Autopilot/Tools/simulation/gz/models:~/PX4-Autopilot/Tools/simulation/gz/worlds
 export GZ_SIM_RESOURCE_PATH=$HOME/a4_models/models:$GZ_SIM_RESOURCE_PATH
 
 # 2. 기존 프로세스 정리
@@ -14,7 +13,7 @@ killall -9 ruby gz-sim-server px4 MicroXRCEAgent 2>/dev/null
 
 # 3. Gazebo 실행
 echo "Starting Gazebo World..."
-gz sim test_sekai.sdf &
+gz sim test.sdf &
 sleep 10
 
 # 4. MicroXRCE DDS 실행
@@ -39,5 +38,4 @@ cd ~/PX4-Autopilot
 echo "Spawning rover 1..."
 PX4_SYS_AUTOSTART=4009 PX4_GZ_MODEL=gz_r1_rover PX4_GZ_MODEL_POSE="0,5,0,0,0,0" PX4_GZ_WORLD=test_world ./build/px4_sitl_default/bin/px4 -i 12 > /dev/null 2>&1 &
 sleep 3
-
 
