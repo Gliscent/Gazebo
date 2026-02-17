@@ -1,22 +1,49 @@
 import rclpy
 from rclpy.node import Node
 from px4_msgs.msg import VehicleCommand
-
+import time
+import subprocess
 
 class DroneController(Node):
     def __init__(self):
         super().__init__('drone_controller')
-
-        # Vehicles 등록
         self.pubs = {
             10: self.create_publisher(VehicleCommand, '/px4_10/fmu/in/vehicle_command', 10),
             11: self.create_publisher(VehicleCommand, '/px4_11/fmu/in/vehicle_command', 10),
             12: self.create_publisher(VehicleCommand, '/px4_12/fmu/in/vehicle_command', 10),
         }
 
-    def move_drone(self, drone_id, lat, lon, alt):
-        if drone_id not in self.pubs:
-            self.get_logger().error(f'ID {drone_id} not exist!')
+        # for arm, takeoff, land
+        self.px4_bin_path = "~/PX4-Autopilot/build/px4_sitl_default/bin/px4-commander"
+
+    def sleep(self, seconds):
+        start_time = self.get_clock().now().nanoseconds
+        while (self.get_clock().now().nanoseconds - start_time) < (seconds * 1e9):
+            rclpy.spin_once(self, timeout_sec=0.05)
+
+    def arm(self, instance):
+        self.get_logger().info(f'[ID {instance}] ARM...')
+        cmd = f"eval {self.px4_bin_path} --instance {instance} arm"
+        subprocess.run(cmd, shell=True)
+
+    def takeoff(self, instance):
+        self.get_logger().info(f'[ID {instance}] TAKEOFF...')
+        cmd = f"eval {self.px4_bin_path} --instance {instance} takeoff"
+        subprocess.run(cmd, shell=True)
+
+    def offboard(self, instance):
+        self.get_logger().info(f'[ID {instance}] TAKEOFF...')
+        cmd = f"eval {self.px4_bin_path} --instance {instance} mode offboard"
+        subprocess.run(cmd, shell=True)
+
+    def land(self, instance):
+        self.get_logger().info(f'[ID {instance}] TAKEOFF...')
+        cmd = f"eval {self.px4_bin_path} --instance {instance} land"
+        subprocess.run(cmd, shell=True)
+
+    def move_drone(self, instance, lat, lon, alt):
+        if instance not in self.pubs:
+            self.get_logger().error(f'ID {instance} not exist!')
             return
 
         msg = VehicleCommand()
@@ -26,19 +53,19 @@ class DroneController(Node):
         msg.param6 = float(lon)
         msg.param7 = float(alt)
 
-        msg.target_system = drone_id + 1
+        msg.target_system = instance + 1
         msg.target_component = 1
         msg.source_system = 1
         msg.source_component = 1
         msg.from_external = True
 
         # publish
-        self.pubs[drone_id].publish(msg)
-        self.get_logger().info(f'[Drone {drone_id}] 이동 명령: Alt {alt}m')
+        self.pubs[instance].publish(msg)
+        self.get_logger().info(f'[Drone {instance}] 이동 명령: Alt {alt}m')
 
-    def move_rover(self, rover_id, lat, lon):
-        if rover_id not in self.pubs:
-            self.get_logger().error(f'ID {rover_id} not exist!')
+    def move_rover(self, instance, lat, lon):
+        if instance not in self.pubs:
+            self.get_logger().error(f'ID {instance} not exist!')
             return
 
         msg = VehicleCommand()
@@ -48,35 +75,44 @@ class DroneController(Node):
         msg.param6 = float(lon)
         msg.param7 = 0.0  # 로버는 고도 0.0
 
-        msg.target_system = rover_id + 1
+        msg.target_system = instance + 1
         msg.target_component = 1
         msg.source_system = 1
         msg.source_component = 1
         msg.from_external = True
 
         # publish
-        self.pubs[rover_id].publish(msg)
-        self.get_logger().info(f'[Rover {rover_id}] 이동: Lat {lat}, Lon {lon}')
-
+        self.pubs[instance].publish(msg)
+        self.get_logger().info(f'[Rover {instance}] 이동: Lat {lat}, Lon {lon}')
 
 def main(args=None):
     rclpy.init(args=args)
     controller = DroneController()
 
-    # 10번 드론 이동
-    controller.move_drone(10, 47.397742, 8.545594, 15.0)
+    # start-up
+    controller.arm(instance=10)
+    controller.arm(instance=11)
+    controller.arm(instance=12)
+    controller.sleep(2)
 
-    # 11번 드론 이동
-    controller.move_drone(11, 47.397842, 8.545694, 20.0)
+    # drone takeoff
+    controller.takeoff(instance=10)
+    controller.takeoff(instance=11)
+    controller.sleep(10.123)
 
-    # 로버 12번 이동
-    controller.move_rover(12, 47.7742, 8.545594)
+    # move sequence
+    controller.move_drone(instance=10, lat=47.397842, lon=8.545494, alt=15.0)
+    controller.move_drone(instance=11, lat=47.397842, lon=8.545594, alt=15.0)
+    controller.move_rover(instance=12, lat=47.397842, lon=8.545694)
+    controller.sleep(5)
 
-    # 메시지 전송 후 종료
-    rclpy.spin_once(controller, timeout_sec=1.0)
+    # drone land
+    controller.land(instance=10)
+    controller.land(instance=11)
+
+
     controller.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
