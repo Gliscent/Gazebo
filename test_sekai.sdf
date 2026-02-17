@@ -25,7 +25,7 @@
       <world_frame_orientation>ENU</world_frame_orientation>
       <latitude_deg>47.397742</latitude_deg>
       <longitude_deg>8.545594</longitude_deg>
-      <elevation>488.0</elevation>
+      <elevation>0.01</elevation>
     </spherical_coordinates>
 
     <light type="directional" name="sun">
