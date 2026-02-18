@@ -39,7 +39,7 @@ commander takeoff
 
 5. QGC download
 
-6. microxrce install from github (https://github.com/eProsima/Micro-XRCE-DDS-Agent.git/)
+6. microxrce agent install from github (https://github.com/eProsima/Micro-XRCE-DDS-Agent.git/)
 
 설치 이후 사용 예시
 ```
