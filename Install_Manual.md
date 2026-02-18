@@ -19,8 +19,15 @@ source ~/ros2_ws/install/setup.bash
 echo "source ~/ros2_ws/install/setup.bash" >> ~/.bashrc
 ```
 4. PX4 install from github (https://github.com/PX4/PX4-Autopilot)
+After install,
+```
+make px4_sitl gz_x500
+```
+```
+make px4_sitl gz_r1_rover
+```
 
-5. Gazebo sim install
+6. Gazebo sim install
 
 (4, 5)번 설치 이후,
 ```
