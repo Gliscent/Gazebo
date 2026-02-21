@@ -2,7 +2,7 @@
 
 1. Ubuntu install
 
-2. ROS2 install (우분투 버전 고려)
+2. ROS2 install & colcon install(우분투 버전 고려)
 
 3. Workspace generate & Msg defintion download
 ```
