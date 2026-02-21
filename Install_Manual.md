@@ -36,6 +36,7 @@ echo 'export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:$PX4_DIR/Tools/simulatio
 
 설치 이후 px4+가제보 사용 예시
 ```
+cd ~/PX4-Autopilot
 make px4_sitl gz_x500
 ```
 px4> 터미널 활성화 후,
