@@ -16,7 +16,7 @@ class DroneController(Node):
             depth=1
         )
 
-        # 퍼블리셔
+        # publisher for move
         self.pubs = {
             10: self.create_publisher(VehicleCommand, '/px4_10/fmu/in/vehicle_command', self.qos_profile),
             11: self.create_publisher(VehicleCommand, '/px4_11/fmu/in/vehicle_command', self.qos_profile),
@@ -33,6 +33,7 @@ class DroneController(Node):
         self.create_subscription(VehicleGlobalPosition, '/px4_12/fmu/out/vehicle_global_position',
                                  lambda msg: self._pos_callback(12, msg), self.qos_profile)
 
+    # basic ros2 command
     def send_command(self, instance, command, **kwargs):
         msg = VehicleCommand()
         msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
@@ -54,53 +55,25 @@ class DroneController(Node):
             rclpy.spin_once(self, timeout_sec=0.05)
 
     async def arm(self, instance):
-        # 1. POSITION 모드 전환
+        # position mode
         self.send_command(instance, 176, param1=1.0, param2=4.0)
         await asyncio.sleep(1.0)
 
-        # 2. 시동(Arm)
+        # arm
         for _ in range(10):
             self.send_command(instance, 400, param1=1.0, param2=21196.0)
             await asyncio.sleep(0.1)
 
         await asyncio.sleep(3.0)
 
-    async def arm_rover(self, instance):
-        self.get_logger().info(f'[Rover {instance}] 시동 시퀀스 시작...')
-
-        # 1. MANUAL 모드로 전환 (로버 시동의 필수 관문)
-        # param1=1.0 (Custom Mode), param2=1.0 (PX4_ROVER_MODE_MANUAL)
-        self.send_command(instance, 176, param1=1.0, param2=1.0)
-        await asyncio.sleep(1.0)
-
-        # 2. 강제 시동(Force Arming) 명령
-        # 로버는 지면에 닿아 있어 진동이나 센서 보정 문제로 일반 Arm이 거절될 수 있으므로
-        # param2=21196.0 (Force Arm)을 사용하여 안전 체크를 강제로 통과시킵니다.
-        for _ in range(15):
-            self.send_command(instance, 400, param1=1.0, param2=21196.0)
-            await asyncio.sleep(0.1)
-
-        # 시동 후 하드웨어가 응답할 시간 대기
-        await asyncio.sleep(2.0)
-
-        # 3. 이동을 위해 POSITION 모드로 전환
-        # 시동이 걸린 상태에서 모드를 바꿔야 미션 수행(move_rover)이 가능합니다.
-        self.get_logger().info(f'[Rover {instance}] 모드 전환: POSITION')
-        self.send_command(instance, 176, param1=1.0, param2=4.0)
-        await asyncio.sleep(1.0)
-
-        # 4. 시동 후 Position 모드로 전환 (이동을 위해)
-        self.send_command(instance, 176, param1=1.0, param2=4.0)
-
     async def takeoff(self, instance, altitude):
-        self.get_logger().info(f'[ID {instance}] 이륙 중...')
+        self.get_logger().info(f'[ID {instance}] takeoff')
         for _ in range(10):
             self.send_command(instance, 22, param7=altitude, param5=float('nan'), param6=float('nan'))
             await asyncio.sleep(0.1)
 
-
-    async def land_sequence(self, instance):
-        self.get_logger().info(f'[ID {instance}] 착륙 시작...')
+    async def land(self, instance):
+        self.get_logger().info(f'[ID {instance}] land')
 
         for _ in range(10):
             self.send_command(instance, 21,
@@ -108,8 +81,6 @@ class DroneController(Node):
                               param6=float('nan'),
                               param7=0.0)  # 지면 고도
             await asyncio.sleep(0.1)
-
-        self.get_logger().info(f'[ID {instance}] 착륙 명령 완료')
 
     def stop_rover(self, instance):
         curr_lat, curr_lon, _ = self.get_position(instance)
@@ -164,7 +135,6 @@ class DroneController(Node):
 
         # publish
         self.pubs[instance].publish(msg)
-        self.get_logger().info(f'[Drone {instance}] 이동 명령: Alt {alt}m')
 
     def move_rover(self, instance, lat, lon):
         if instance not in self.pubs:
@@ -186,38 +156,32 @@ class DroneController(Node):
 
         # publish
         self.pubs[instance].publish(msg)
-        self.get_logger().info(f'[Rover {instance}] 이동: Lat {lat}, Lon {lon}')
+
 
 async def run_mission(controller):
     all = [10, 11, 12]
     drones = [10, 11]
-    rovers = [12]
 
-    # # 1. 모든 드론 동시 이륙
-    controller.get_logger().info('모든 드론 이륙 시작...')
+    # 1. 모든 vehicles 시동
+    controller.get_logger().info('모든 vehicles 시동...')
     await asyncio.gather(*[controller.arm(i) for i in all])
 
+    # 2. 드론 이륙
     controller.get_logger().info('모든 드론 이륙 시작...')
     await asyncio.gather(*[controller.takeoff(i, -30.0) for i in drones])
-
-    # 1.1. rover
-
-
-    # 2. 10초간 공중 정지(Hovering) 대기
-    controller.get_logger().info('10초간 고도 유지 중...')
+    controller.get_logger().info('이동 전 대기...')
     await asyncio.sleep(10.0)
-    # move sequence (non-blocking)
+
+    # 3. 이동
     controller.move_drone(instance=10, lat=47.397842, lon=8.545494, alt=15.0)
     controller.move_drone(instance=11, lat=47.397842, lon=8.545594, alt=15.0)
     controller.move_rover(instance=12, lat=47.397842, lon=8.545694)
     controller.sleep(5)
 
+    # 4. 로버 정지 & 드론 착륙
     controller.stop_rover(instance=12)
-    # 3. 모든 드론 동시 착륙
     controller.get_logger().info('모든 드론 착륙 시작...')
-    await asyncio.gather(*[controller.land_sequence(i) for i in drones])
-
-    # 4. 완전히 내려앉을 때까지 대기
+    await asyncio.gather(*[controller.land(i) for i in drones])
     await asyncio.sleep(10.0)
     controller.get_logger().info('미션 종료.')
 
