@@ -2,7 +2,7 @@ import time
 import asyncio
 import rclpy
 from rclpy.node import Node
-from px4_msgs.msg import VehicleCommand, VehicleGlobalPosition
+from px4_msgs.msg import VehicleCommand, VehicleGlobalPosition, GotoSetpoint
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
 
@@ -22,9 +22,17 @@ class DroneController(Node):
             0: self.create_publisher(VehicleCommand, '/vehicle1/fmu/in/vehicle_command', self.qos_profile),
             1: self.create_publisher(VehicleCommand, '/vehicle2/fmu/in/vehicle_command', self.qos_profile),
             2: self.create_publisher(VehicleCommand, '/vehicle3/fmu/in/vehicle_command', self.qos_profile),
+            3: self.create_publisher(VehicleCommand, '/vehicle4/fmu/in/vehicle_command', self.qos_profile),
+            4: self.create_publisher(VehicleCommand, '/vehicle5/fmu/in/vehicle_command', self.qos_profile),
+            5: self.create_publisher(VehicleCommand, '/vehicle6/fmu/in/vehicle_command', self.qos_profile),
+            6: self.create_publisher(VehicleCommand, '/vehicle7/fmu/in/vehicle_command', self.qos_profile),
+            7: self.create_publisher(VehicleCommand, '/vehicle8/fmu/in/vehicle_command', self.qos_profile),
+        }
+        self.goto_pubs = {
+            1: self.create_publisher(GotoSetpoint, '/vehicle2/fmu/in/goto_setpoint', self.qos_profile),
         }
 
-        self.drone_positions = {0: None, 1: None, 2: None}
+        self.drone_positions = {0: None, 1: None, 2: None, 3: None, 4: None, 5: None, 6: None, 7: None}
 
         # subscriber for get position
         self.create_subscription(VehicleGlobalPosition, '/vehicle1/fmu/out/vehicle_global_position',
@@ -33,10 +41,16 @@ class DroneController(Node):
                                  lambda msg: self._pos_callback(1, msg), self.qos_profile)
         self.create_subscription(VehicleGlobalPosition, '/vehicle3/fmu/out/vehicle_global_position',
                                  lambda msg: self._pos_callback(2, msg), self.qos_profile)
-
-        # Docker settings
-        # self.container_name = "realgazebo"
-        # self.inner_bin_path = "/home/user/realgazebo/RealGazebo-PX4/build/px4_sitl_default/bin/px4-commander"
+        self.create_subscription(VehicleGlobalPosition, '/vehicle4/fmu/out/vehicle_global_position',
+                                 lambda msg: self._pos_callback(3, msg), self.qos_profile)
+        self.create_subscription(VehicleGlobalPosition, '/vehicle5/fmu/out/vehicle_global_position',
+                                 lambda msg: self._pos_callback(4, msg), self.qos_profile)
+        self.create_subscription(VehicleGlobalPosition, '/vehicle6/fmu/out/vehicle_global_position',
+                                 lambda msg: self._pos_callback(5, msg), self.qos_profile)
+        self.create_subscription(VehicleGlobalPosition, '/vehicle7/fmu/out/vehicle_global_position',
+                                 lambda msg: self._pos_callback(6, msg), self.qos_profile)
+        self.create_subscription(VehicleGlobalPosition, '/vehicle8/fmu/out/vehicle_global_position',
+                                 lambda msg: self._pos_callback(7, msg), self.qos_profile)
 
     # basic ros2 command
     def send_command(self, instance, command, **kwargs):
@@ -45,7 +59,7 @@ class DroneController(Node):
         msg.command = command
         msg.target_system = instance + 1
         msg.target_component = 1
-        msg.source_system = 255 - (instance - 10)
+        msg.source_system = 255
         msg.source_component = 1
         msg.from_external = True
         msg.confirmation = 1
@@ -60,16 +74,13 @@ class DroneController(Node):
             rclpy.spin_once(self, timeout_sec=0.05)
 
     async def arm(self, instance):
-        # position mode
-        self.send_command(instance, 176, param1=1.0, param2=4.0)
-        await asyncio.sleep(1.0)
-
         # arm
-        for _ in range(10):
+        for i in range(20):  # 10번에서 20번으로 늘림
             self.send_command(instance, 400, param1=1.0, param2=21196.0)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.2)
 
-        await asyncio.sleep(3.0)
+        await asyncio.sleep(2.0)
+
 
     async def takeoff(self, instance, altitude):
         self.get_logger().info(f'[ID {instance}] takeoff')
@@ -162,31 +173,71 @@ class DroneController(Node):
         # publish
         self.pubs[instance].publish(msg)
 
+    def move_hexacopter(self, instance, lat, lon, alt):
+        if instance not in self.pubs:
+            self.get_logger().error(f'ID {instance} not exist!')
+            return
+
+        msg = VehicleCommand()
+        msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
+        msg.command = 192  # MAV_CMD_DO_REPOSITION
+        msg.param5 = float(lat)
+        msg.param6 = float(lon)
+        msg.param7 = float(alt)
+
+        # # 필수 파라미터들
+        # msg.param1 = -1.0  # -1.0은 기체의 기본 속도를 사용한다는 뜻입니다.
+        # msg.param2 = 0.0  # Reposition 타입 (0: 전역 좌표 이동)
+        # msg.param4 = float('nan')  # 헤딩 유지 (필요하면 현재 yaw값 입력)
+
+        msg.target_system = instance + 1
+        msg.target_component = 1  # 반드시 1이어야 합니다.
+        msg.source_system = 1
+        msg.source_component = 1
+        msg.from_external = True
+
+        self.pubs[instance].publish(msg)
+
 
 async def run_mission(controller):
-    all = [0, 1, 2]
-    drones = [0, 1]
+    drones = [0, 1, 2, 3]
+    crash = [4]
+    rovers = [5, 6, 7]
 
-    # 1. 모든 vehicles 시동
-    controller.get_logger().info('모든 vehicles 시동...')
-    await asyncio.gather(*[controller.arm(i) for i in all])
+    # # 1. 모든 vehicles 시동
+    controller.get_logger().info('drones 시동...')
+    for i in [0, 1, 2, 3]:
+        asyncio.create_task(controller.arm(i))
+        await asyncio.sleep(0.5)  # 0.5초 간격으로 arm 명령 시작 유도
 
     # 2. 드론 이륙
     controller.get_logger().info('모든 드론 이륙 시작...')
-    await asyncio.gather(*[controller.takeoff(i, -30.0) for i in drones])
+    await asyncio.gather(*[controller.takeoff(i, 80.0) for i in [0, 1, 2, 3]])
     controller.get_logger().info('이동 전 대기...')
-    await asyncio.sleep(10.0)
+    await asyncio.sleep(30.0)
+
+    # # 1. 모든 vehicles 시동
+    controller.get_logger().info('rovers 시동...')
+    for i in [5, 6, 7]:
+        asyncio.create_task(controller.arm(i))
+        await asyncio.sleep(0.5)  # 0.5초 간격으로 arm 명령 시작 유도
+    await asyncio.sleep(10)
 
     # 3. 이동
-    controller.move_drone(instance=10, lat=47.397842, lon=8.545494, alt=15.0)
-    controller.move_drone(instance=11, lat=47.397842, lon=8.545594, alt=15.0)
-    controller.move_rover(instance=12, lat=47.397842, lon=8.545694)
-    controller.sleep(5)
+    controller.get_logger().info('이동...')
+    controller.move_drone(instance=0, lat=36.397842, lon=8.545494, alt=105.0)
+    controller.move_drone(instance=1, lat=-78.397842, lon=-17.545494, alt=105.0)
+    controller.move_drone(instance=2, lat=36.397842, lon=8.545594, alt=105.0)
+    controller.move_drone(instance=3, lat=36.397842, lon=8.545594, alt=105.0)
+    controller.move_rover(instance=5, lat=47.397842, lon=8.545694)
+    controller.move_rover(instance=6, lat=47.397842, lon=8.545694)
+    controller.move_rover(instance=7, lat=47.397842, lon=8.545694)
+    controller.sleep(15)
 
     # 4. 로버 정지 & 드론 착륙
-    controller.stop_rover(instance=12)
+    # controller.stop_rover(instance=12)
     controller.get_logger().info('모든 드론 착륙 시작...')
-    await asyncio.gather(*[controller.land(i) for i in drones])
+    await asyncio.gather(*[controller.land(i) for i in [0, 1, 2, 3]])
     await asyncio.sleep(10.0)
     controller.get_logger().info('미션 종료.')
 
