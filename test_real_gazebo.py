@@ -2,7 +2,7 @@ import time
 import asyncio
 import rclpy
 from rclpy.node import Node
-from px4_msgs.msg import VehicleCommand, VehicleGlobalPosition, GotoSetpoint
+from px4_msgs.msg import VehicleCommand, VehicleGlobalPosition
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
 
@@ -27,9 +27,6 @@ class DroneController(Node):
             5: self.create_publisher(VehicleCommand, '/vehicle6/fmu/in/vehicle_command', self.qos_profile),
             6: self.create_publisher(VehicleCommand, '/vehicle7/fmu/in/vehicle_command', self.qos_profile),
             7: self.create_publisher(VehicleCommand, '/vehicle8/fmu/in/vehicle_command', self.qos_profile),
-        }
-        self.goto_pubs = {
-            1: self.create_publisher(GotoSetpoint, '/vehicle2/fmu/in/goto_setpoint', self.qos_profile),
         }
 
         self.drone_positions = {0: None, 1: None, 2: None, 3: None, 4: None, 5: None, 6: None, 7: None}
@@ -173,32 +170,6 @@ class DroneController(Node):
         # publish
         self.pubs[instance].publish(msg)
 
-    def move_hexacopter(self, instance, lat, lon, alt):
-        if instance not in self.pubs:
-            self.get_logger().error(f'ID {instance} not exist!')
-            return
-
-        msg = VehicleCommand()
-        msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
-        msg.command = 192  # MAV_CMD_DO_REPOSITION
-        msg.param5 = float(lat)
-        msg.param6 = float(lon)
-        msg.param7 = float(alt)
-
-        # # 필수 파라미터들
-        # msg.param1 = -1.0  # -1.0은 기체의 기본 속도를 사용한다는 뜻입니다.
-        # msg.param2 = 0.0  # Reposition 타입 (0: 전역 좌표 이동)
-        # msg.param4 = float('nan')  # 헤딩 유지 (필요하면 현재 yaw값 입력)
-
-        msg.target_system = instance + 1
-        msg.target_component = 1  # 반드시 1이어야 합니다.
-        msg.source_system = 1
-        msg.source_component = 1
-        msg.from_external = True
-
-        self.pubs[instance].publish(msg)
-
-
 async def run_mission(controller):
     drones = [0, 1, 2, 3]
     crash = [4]
@@ -232,6 +203,17 @@ async def run_mission(controller):
     controller.move_rover(instance=5, lat=47.397842, lon=8.545694)
     controller.move_rover(instance=6, lat=47.397842, lon=8.545694)
     controller.move_rover(instance=7, lat=47.397842, lon=8.545694)
+
+    print(controller.get_position(instance=0))
+    print(controller.get_position(instance=1))
+    print(controller.get_position(instance=2))
+    print(controller.get_position(instance=3))
+    print(controller.get_position(instance=4))
+    print(controller.get_position(instance=5))
+    print(controller.get_position(instance=6))
+    print(controller.get_position(instance=7))
+
+
     controller.sleep(15)
 
     # 4. 로버 정지 & 드론 착륙
