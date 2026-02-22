@@ -35,8 +35,8 @@ class DroneController(Node):
                                  lambda msg: self._pos_callback(2, msg), self.qos_profile)
 
         # Docker settings
-        self.container_name = "realgazebo"
-        self.inner_bin_path = "/home/user/realgazebo/RealGazebo-PX4/build/px4_sitl_default/bin/px4-commander"
+        # self.container_name = "realgazebo"
+        # self.inner_bin_path = "/home/user/realgazebo/RealGazebo-PX4/build/px4_sitl_default/bin/px4-commander"
 
     # basic ros2 command
     def send_command(self, instance, command, **kwargs):
