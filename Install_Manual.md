@@ -27,7 +27,7 @@ make px4_sitl gz_x500
 make px4_sitl gz_r1_rover
 ```
 
-6. Gazebo sim install
+5. Gazebo sim install
 
 (4, 5)번 설치 이후,
 ```
@@ -45,9 +45,9 @@ commander arm
 commander takeoff
 ```
 
-5. QGC download
+6. QGC download
 
-6. microxrce agent install from github (https://github.com/eProsima/Micro-XRCE-DDS-Agent.git/)
+7. microxrce agent install from github (https://github.com/eProsima/Micro-XRCE-DDS-Agent.git/)
 
 설치 이후 사용 예시
 ```
