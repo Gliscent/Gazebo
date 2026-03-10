@@ -1,7 +1,10 @@
+import math
+
 import asyncio
 import rclpy
+
 from rclpy.node import Node
-from px4_msgs.msg import VehicleCommand, VehicleGlobalPosition
+from px4_msgs.msg import VehicleCommand, VehicleGlobalPosition, VehicleAttitude
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
 
@@ -21,18 +24,23 @@ class DroneController(Node):
             10: self.create_publisher(VehicleCommand, '/px4_10/fmu/in/vehicle_command', self.qos_profile),
             11: self.create_publisher(VehicleCommand, '/px4_11/fmu/in/vehicle_command', self.qos_profile),
             12: self.create_publisher(VehicleCommand, '/px4_12/fmu/in/vehicle_command', self.qos_profile),
+            13: self.create_publisher(VehicleCommand, '/px4_13/fmu/in/vehicle_command', self.qos_profile),
+            14: self.create_publisher(VehicleCommand, '/px4_14/fmu/in/vehicle_command', self.qos_profile),
         }
 
-        self.drone_positions = {10: None, 11: None, 12: None}
+        self.drone_positions = {10: None, 11: None, 12: None, 13: None, 14: None}
+        self.drone_yaws = {10: None, 11: None, 12: None, 13: None, 14: None}
 
         # subscriber for get position
-        self.create_subscription(VehicleGlobalPosition, '/px4_10/fmu/out/vehicle_global_position',
-                                 lambda msg: self._pos_callback(10, msg), self.qos_profile)
-        self.create_subscription(VehicleGlobalPosition, '/px4_11/fmu/out/vehicle_global_position',
-                                 lambda msg: self._pos_callback(11, msg), self.qos_profile)
-        self.create_subscription(VehicleGlobalPosition, '/px4_12/fmu/out/vehicle_global_position',
-                                 lambda msg: self._pos_callback(12, msg), self.qos_profile)
+        for i in [10, 11, 12, 13, 14]:
+            self.create_subscription(VehicleGlobalPosition, f'/px4_{i}/fmu/out/vehicle_global_position',
+                                     lambda msg, idx=i: self._pos_callback(idx, msg), self.qos_profile)
 
+        # subscriber for get attitude
+        for i in [10, 11, 12, 13, 14]:
+            self.create_subscription(VehicleAttitude, f'/px4_{i}/fmu/out/vehicle_attitude',
+                                     lambda msg, idx=i: self._att_callback(idx, msg), self.qos_profile)
+                                 
     # basic ros2 command
     def send_command(self, instance, command, **kwargs):
         msg = VehicleCommand()
@@ -40,7 +48,7 @@ class DroneController(Node):
         msg.command = command
         msg.target_system = instance + 1
         msg.target_component = 1
-        msg.source_system = 255 - (instance - 10)
+        msg.source_system = 1
         msg.source_component = 1
         msg.from_external = True
         msg.confirmation = 1
@@ -115,6 +123,13 @@ class DroneController(Node):
             self.get_logger().warn(f"No data from Drone {instance}")
             return None, None, None
 
+    def _att_callback(self, instance, msg):
+        q = msg.q
+        # Quaternion to Euler (Yaw만 추출)
+        siny_cosp = 2 * (q[0] * q[3] + q[1] * q[2])
+        cosy_cosp = 1 - 2 * (q[2] * q[2] + q[3] * q[3])
+        self.drone_yaws[instance] = math.atan2(siny_cosp, cosy_cosp)
+
     def move_drone(self, instance, lat, lon, alt):
         if instance not in self.pubs:
             self.get_logger().error(f'ID {instance} not exist!')
@@ -136,7 +151,7 @@ class DroneController(Node):
         # publish
         self.pubs[instance].publish(msg)
 
-    def move_rover(self, instance, lat, lon):
+    def move_rover(self, instance, lat, lon, speed):
         if instance not in self.pubs:
             self.get_logger().error(f'ID {instance} not exist!')
             return
@@ -144,6 +159,8 @@ class DroneController(Node):
         msg = VehicleCommand()
         msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
         msg.command = 192  # MAV_CMD_DO_REPOSITION
+        msg.param1 = float(speed)
+        msg.param2 = 0.0
         msg.param5 = float(lat)
         msg.param6 = float(lon)
         msg.param7 = 0.0  # 로버는 고도 0.0
@@ -159,8 +176,9 @@ class DroneController(Node):
 
 
 async def run_mission(controller):
-    all = [10, 11, 12]
-    drones = [10, 11]
+    all = [10, 11, 12, 13, 14]
+    drones = [10, 11, 12]
+
 
     # 1. 모든 vehicles 시동
     controller.get_logger().info('모든 vehicles 시동...')
@@ -168,18 +186,22 @@ async def run_mission(controller):
 
     # 2. 드론 이륙
     controller.get_logger().info('모든 드론 이륙 시작...')
-    await asyncio.gather(*[controller.takeoff(i, -30.0) for i in drones])
+    await asyncio.gather(*[controller.takeoff(i, 35.0) for i in drones])
     controller.get_logger().info('이동 전 대기...')
-    await asyncio.sleep(10.0)
+    await asyncio.sleep(15.0)
 
     # 3. 이동
-    controller.move_drone(instance=10, lat=47.397842, lon=8.545494, alt=15.0)
-    controller.move_drone(instance=11, lat=47.397842, lon=8.545594, alt=15.0)
-    controller.move_rover(instance=12, lat=47.397842, lon=8.545694)
-    controller.sleep(5)
+    controller.get_logger().info('이동...')
+    controller.move_drone(instance=10, lat=7.397842, lon=127.545494, alt=30.0)
+    controller.move_drone(instance=11, lat=7.397842, lon=127.545594, alt=30.0)
+    controller.move_drone(instance=12, lat=7.397842, lon=127.545594, alt=30.0)
+    controller.move_rover(instance=13, lat=7.397842, lon=127.545694, speed=1.0)
+    controller.move_rover(instance=14, lat=7.397842, lon=127.545694, speed=10.0)
+    controller.sleep(60)
 
     # 4. 로버 정지 & 드론 착륙
-    controller.stop_rover(instance=12)
+    controller.stop_rover(instance=13)
+    controller.stop_rover(instance=14)
     controller.get_logger().info('모든 드론 착륙 시작...')
     await asyncio.gather(*[controller.land(i) for i in drones])
     await asyncio.sleep(10.0)
@@ -208,3 +230,4 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
+
