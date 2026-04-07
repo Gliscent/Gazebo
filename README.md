@@ -1,6 +1,6 @@
 # Gazebo
 
-Ubuntu 24.04 (Noble Numbat) + ROS2 Jazzy Jalisco + Gazebo Harmonic + PX4 + Micro XRCE-DDS
+Ubuntu 22.04 + ROS2 + Gazebo + PX4 + Micro XRCE-DDS
 
 1. WARNING!!! This project needs "a4_models" folder, which I have. Tell me if you want.
 
