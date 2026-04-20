@@ -1,5 +1,7 @@
 import time
+import math
 import asyncio
+
 import rclpy
 from rclpy.node import Node
 from px4_msgs.msg import VehicleCommand, VehicleGlobalPosition
@@ -25,11 +27,9 @@ class DroneController(Node):
             3: self.create_publisher(VehicleCommand, '/vehicle4/fmu/in/vehicle_command', self.qos_profile),
             4: self.create_publisher(VehicleCommand, '/vehicle5/fmu/in/vehicle_command', self.qos_profile),
             5: self.create_publisher(VehicleCommand, '/vehicle6/fmu/in/vehicle_command', self.qos_profile),
-            6: self.create_publisher(VehicleCommand, '/vehicle7/fmu/in/vehicle_command', self.qos_profile),
-            7: self.create_publisher(VehicleCommand, '/vehicle8/fmu/in/vehicle_command', self.qos_profile),
         }
 
-        self.drone_positions = {0: None, 1: None, 2: None, 3: None, 4: None, 5: None, 6: None, 7: None}
+        self.drone_positions = {0: None, 1: None, 2: None, 3: None, 4: None, 5: None}
 
         # subscriber for get position
         self.create_subscription(VehicleGlobalPosition, '/vehicle1/fmu/out/vehicle_global_position',
@@ -44,10 +44,8 @@ class DroneController(Node):
                                  lambda msg: self._pos_callback(4, msg), self.qos_profile)
         self.create_subscription(VehicleGlobalPosition, '/vehicle6/fmu/out/vehicle_global_position',
                                  lambda msg: self._pos_callback(5, msg), self.qos_profile)
-        self.create_subscription(VehicleGlobalPosition, '/vehicle7/fmu/out/vehicle_global_position',
-                                 lambda msg: self._pos_callback(6, msg), self.qos_profile)
-        self.create_subscription(VehicleGlobalPosition, '/vehicle8/fmu/out/vehicle_global_position',
-                                 lambda msg: self._pos_callback(7, msg), self.qos_profile)
+
+        self.stop_mission_flag = {0: False, 1: False, 2: False, 3: False, 4: False, 5: False}
 
     # basic ros2 command
     def send_command(self, instance, command, **kwargs):
@@ -77,7 +75,6 @@ class DroneController(Node):
             await asyncio.sleep(0.2)
 
         await asyncio.sleep(2.0)
-
 
     async def takeoff(self, instance, altitude):
         self.get_logger().info(f'[ID {instance}] takeoff')
@@ -170,56 +167,171 @@ class DroneController(Node):
         # publish
         self.pubs[instance].publish(msg)
 
+    async def move_waypoints(self, instance, is_rover, waypoints):
+        for i, wp in enumerate(waypoints):
+            lat, lon, alt = wp
+
+            if is_rover:
+                self.move_rover(instance, lat, lon)
+            else:
+                self.move_drone(instance, lat, lon, alt)
+
+            while rclpy.ok():
+                if self.stop_mission_flag[instance]:
+                    self.get_logger().info(f'[ID {instance}] mission failed flag!')
+                    await self.land(instance)
+                    return  # stop function
+
+                else:
+                    curr_lat, curr_lon, curr_alt = self.get_position(instance)
+
+                    if curr_lat is not None:
+                        dist = self.get_distance(curr_lat, curr_lon, lat, lon)
+
+                        if dist < 0.00002:  # threshold
+                            self.get_logger().info(f'go to next waypoint')
+                            break
+
+                    await asyncio.sleep(0.5)  # 2hz position check
+
+    async def follow_target(self, drone_id, target_id, height):
+        while rclpy.ok() and not self.stop_mission_flag[drone_id]:
+            lat, lon, _ = self.get_position(target_id)
+
+            if lat is not None:
+                self.move_drone(drone_id, lat, lon, height)
+            await asyncio.sleep(0.2)
+
+    @staticmethod
+    def get_distance(lat1, lon1, lat2, lon2):
+        return math.sqrt((lat1 - lat2) ** 2 + (lon1 - lon2) ** 2)
+
+
 async def run_mission(controller):
-    drones = [0, 1, 2, 3]
-    crash = [4]
-    rovers = [5, 6, 7]
+    UAV_L = [0, 1]
+    UAV_S = [2, 3]
+    UGV = [4, 5]
+    all = UAV_L + UAV_S + UGV
+    UAV = UAV_L + UAV_S
 
     # # 1. 모든 vehicles 시동
     controller.get_logger().info('drones 시동...')
-    for i in [0, 1, 2, 3]:
+    for i in all:
         asyncio.create_task(controller.arm(i))
         await asyncio.sleep(0.5)  # 0.5초 간격으로 arm 명령 시작 유도
 
     # 2. 드론 이륙
     controller.get_logger().info('모든 드론 이륙 시작...')
-    await asyncio.gather(*[controller.takeoff(i, 80.0) for i in [0, 1, 2, 3]])
+    await asyncio.gather(*[controller.takeoff(i, 145.0) for i in UAV])
     controller.get_logger().info('이동 전 대기...')
     await asyncio.sleep(30.0)
 
-    # # 1. 모든 vehicles 시동
-    controller.get_logger().info('rovers 시동...')
-    for i in [5, 6, 7]:
-        asyncio.create_task(controller.arm(i))
-        await asyncio.sleep(0.5)  # 0.5초 간격으로 arm 명령 시작 유도
-    await asyncio.sleep(10)
-
     # 3. 이동
-    controller.get_logger().info('이동...')
-    controller.move_drone(instance=0, lat=36.397842, lon=8.545494, alt=105.0)
-    controller.move_drone(instance=1, lat=-78.397842, lon=-17.545494, alt=105.0)
-    controller.move_drone(instance=2, lat=36.397842, lon=8.545594, alt=105.0)
-    controller.move_drone(instance=3, lat=36.397842, lon=8.545594, alt=105.0)
-    controller.move_rover(instance=5, lat=47.397842, lon=8.545694)
-    controller.move_rover(instance=6, lat=47.397842, lon=8.545694)
-    controller.move_rover(instance=7, lat=47.397842, lon=8.545694)
+    # controller.get_logger().info('이동...')
+    # controller.move_drone(instance=0, lat=36.729104, lon=127.441943, alt=135.0)
+    # controller.move_drone(instance=1, lat=-78.397842, lon=-17.545494, alt=135.0)
+    # controller.move_drone(instance=2, lat=36.397842, lon=8.545594, alt=135.0)
+    # controller.move_drone(instance=3, lat=36.397842, lon=8.545594, alt=135.0)
+    # controller.move_rover(instance=4, lat=47.397842, lon=8.545694)
+    # controller.move_rover(instance=5, lat=47.397842, lon=8.545694)
+    # controller.sleep(1)
 
-    print(controller.get_position(instance=0))
-    print(controller.get_position(instance=1))
-    print(controller.get_position(instance=2))
-    print(controller.get_position(instance=3))
-    print(controller.get_position(instance=4))
-    print(controller.get_position(instance=5))
-    print(controller.get_position(instance=6))
-    print(controller.get_position(instance=7))
+    lc62_waypoints1 = [
+        [36.727563, 127.441557, 160.0],
+        [36.727563, 127.441557, 160.0]
+    ]
+
+    lc62_waypoints2 = [
+        [36.728360, 127.442670, 170.0],
+        [36.728360, 127.442670, 170.0],
+    ]
+
+    lc62_waypoints3_breakdown = [
+        [36.727917, 127.441806, 170.0],
+        [36.727917, 127.441806, 170.0],
+    ]
 
 
-    controller.sleep(15)
+    rover_waypoints1 = [
+        [36.728826, 127.441886, 0.0],
+        [36.728731, 127.441803, 0.0],
+        [36.728635, 127.441781, 0.0],
+        [36.728503, 127.441835, 0.0],
+        [36.728466, 127.441897, 0.0],
+        [36.728458, 127.442093, 0.0],
+        [36.728506, 127.442161, 0.0],
+        [36.728697, 127.442262, 0.0],
+        [36.728785, 127.442332, 0.0],
+        [36.728828, 127.442402, 0.0],
+        [36.728838, 127.442493, 0.0],
+        [36.728835, 127.442607, 0.0],  # (out of white road)
+    ]
+
+    rover_waypoints2 = [
+        [36.728585, 127.442481, 0.0],
+        [36.728268, 127.442433, 0.0],
+        [36.727950, 127.442413, 0.0],
+        [36.727888, 127.442413, 0.0],
+
+        [36.727858, 127.442327, 0.0],
+        [36.727739, 127.441759, 0.0]
+    ]
+
+    rover_waypoints3 = [
+        [36.728585, 127.442481, 0.0],
+        [36.728268, 127.442433, 0.0],
+        [36.727950, 127.442413, 0.0],
+        [36.727888, 127.442413, 0.0],
+
+        [36.727872, 127.442492, 0.0],
+        [36.727909, 127.442804, 0.0]
+    ]
+
+    # Before Replan
+    task1 = asyncio.create_task(
+        controller.move_waypoints(instance=0, is_rover=False, waypoints=lc62_waypoints1))
+    task2 = asyncio.create_task(
+        controller.move_waypoints(instance=1, is_rover=False, waypoints=lc62_waypoints2))
+
+    task3 = asyncio.create_task(controller.follow_target(drone_id=2, target_id=4, height=140.0))
+    task4 = asyncio.create_task(controller.follow_target(drone_id=3, target_id=5, height=150.0))
+
+    task5 = asyncio.create_task(
+        controller.move_waypoints(instance=4, is_rover=True, waypoints=rover_waypoints1 + rover_waypoints2))
+    task6 = asyncio.create_task(
+        controller.move_waypoints(instance=5, is_rover=True, waypoints=rover_waypoints1 + rover_waypoints3))
+
+    await asyncio.sleep(100.0)
+    controller.stop_mission_flag[0] = True  # breakdown
+
+    controller.get_logger().warn("lc62 (instance0), breakdown!!! ")
+    await asyncio.sleep(0.5)
+    task1_breakdown = asyncio.create_task(controller.land(0))
+
+    # After Replan
+    controller.get_logger().warn("replanning...")
+    controller.stop_mission_flag[1] = True  # for replanning
+    await asyncio.sleep(1.0)
+    controller.stop_mission_flag[1] = False  # for replanning
+
+    task2_replan = asyncio.create_task(
+        controller.move_waypoints(instance=1, is_rover=False, waypoints=lc62_waypoints3_breakdown)
+    )
+
+    await asyncio.gather(task1_breakdown, task2_replan, task3, task4, task5, task6)
+
+    # print(controller.get_position(instance=0))
+    # print(controller.get_position(instance=1))
+    # print(controller.get_position(instance=2))
+    # print(controller.get_position(instance=3))
+    # print(controller.get_position(instance=4))
+    # print(controller.get_position(instance=5))
 
     # 4. 로버 정지 & 드론 착륙
-    # controller.stop_rover(instance=12)
+    controller.stop_rover(instance=4)
+    controller.stop_rover(instance=5)
     controller.get_logger().info('모든 드론 착륙 시작...')
-    await asyncio.gather(*[controller.land(i) for i in [0, 1, 2, 3]])
+    await asyncio.gather(*[controller.land(i) for i in UAV])
     await asyncio.sleep(10.0)
     controller.get_logger().info('미션 종료.')
 
